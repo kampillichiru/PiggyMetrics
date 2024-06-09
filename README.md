@@ -1,35 +1,46 @@
-private static Path resolveSecurePath(Path basePath, String fileName) throws IOException {
-		try {
-			Path basePath = Paths.get(fileName);
-			// Ensure the directory exists
-			if (!Files.exists(basePath)) {
-				throw new IOException("Directory does not exist: " + stagingFilePath);
-			}
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
-			// Ensure it is a directory
-			if (!Files.isDirectory(basePath)) {
-				throw new IOException("The path is not a directory: " + stagingFilePath);
-			}
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-			// Ensure the application has necessary permissions (read/write)
-			if (!Files.isReadable(basePath) || !Files.isWritable(basePath)) {
-				throw new IOException("Insufficient permissions for the staging directory: " + stagingFilePath);
-			}
-			// Normalize the base path and user input
-			Path resolvedPath = basePath.resolve(fileName).normalize();
+@Service
+public class CacheService {
 
-			// Ensure the resolved path starts with the intended base directory
-			if (!resolvedPath.startsWith(basePath)) {
-				throw new IOException("Potential path traversal detected");
-			}
+    private final Map<String, CachedApiResponse> globalCache = new ConcurrentHashMap<>();
 
-			// Ensure the file exists if that's a requirement
-			if (!Files.exists(resolvedPath)) {
-				throw new IOException("File does not exist");
-			}
-		} catch (InvalidPathException e) {
-			throw new IOException("Invalid file path", e);
-		}
+    public String getCachedResponse(String url) {
+        if (globalCache.containsKey(url)) {
+            CachedApiResponse cachedResponse = globalCache.get(url);
+            if (cachedResponse.isValid()) {
+                return cachedResponse.getResponse();
+            } else {
+                globalCache.remove(url);
+            }
+        }
+        return null; // Return null if no cached response found or expired
+    }
 
-		return resolvedPath;
-	}
+    public void cacheResponse(String url, String response) {
+        globalCache.put(url, new CachedApiResponse(response, System.currentTimeMillis()));
+    }
+
+    // Helper class to store cached API response along with timestamp
+    private static class CachedApiResponse {
+        private final String response;
+        private final long timestamp;
+
+        public CachedApiResponse(String response, long timestamp) {
+            this.response = response;
+            this.timestamp = timestamp;
+        }
+
+        public String getResponse() {
+            return response;
+        }
+
+        public boolean isValid() {
+            return System.currentTimeMillis() - timestamp <= 300000; // 5 minutes in milliseconds
+        }
+    }
+}
